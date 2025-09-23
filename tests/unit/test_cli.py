@@ -14,6 +14,18 @@ def _write_info_plist(directory: Path, name: str) -> None:
         plistlib.dump({"MailboxName": name}, handle)
 
 
+def _write_emlx(directory: Path, name: str, *, subject: str) -> None:
+    payload = (
+        f"From: Alice <alice@example.com>\n"
+        f"To: Bob <bob@example.com>\n"
+        f"Date: Mon, 01 Jan 2001 12:00:00 +0000\n"
+        f"Subject: {subject}\n\n"
+        "Body\n"
+    ).encode("utf-8")
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_bytes(str(len(payload)).encode("ascii") + b"\n" + payload)
+
+
 TOC_MAGIC = 0x000DBBA0
 
 
@@ -23,8 +35,8 @@ def _write_table_of_contents(mailbox_dir: Path, count: int) -> None:
 
 
 def test_parse_args_resolves_paths_for_migrate(tmp_path: Path) -> None:
-    source = tmp_path / "export.mbox"
-    source.mkdir()
+    source = tmp_path / "Mail" / "V10"
+    source.mkdir(parents=True)
     profile = tmp_path / "Profile.test"
     profile.mkdir()
     args = cli.parse_args(
@@ -36,14 +48,15 @@ def test_parse_args_resolves_paths_for_migrate(tmp_path: Path) -> None:
         ]
     )
     assert args.command == "migrate"
-    assert args.source_mbox == source
+    assert args.mail_store_root == source
     assert args.thunderbird_profile == profile
     assert args.local_folder_path == Path("Mail/Local Folders/Imports")
+    assert args.prefix is None
 
 
 def test_parse_args_rejects_absolute_local_folder(tmp_path: Path) -> None:
-    source = tmp_path / "export.mbox"
-    source.mkdir()
+    source = tmp_path / "Mail" / "V10"
+    source.mkdir(parents=True)
     profile = tmp_path / "Profile.test"
     profile.mkdir()
     absolute_local = tmp_path / "absolute"
@@ -65,11 +78,39 @@ def test_main_migrate_raises_file_not_found(tmp_path: Path) -> None:
         cli.main(
             [
                 "migrate",
-                str(tmp_path / "missing.mbox"),
+                str(tmp_path / "missing-store"),
                 str(profile),
                 "Mail/Local Folders/Imports",
             ]
         )
+
+
+def test_migrate_command_dry_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    store_root = tmp_path / "Mail" / "V10" / "Account" / "Inbox.mbox"
+    store_root.mkdir(parents=True)
+    _write_info_plist(store_root, "Inbox")
+    messages = store_root / "UUID" / "Data" / "0" / "0" / "Messages"
+    _write_emlx(messages, "1.emlx", subject="Test Migration")
+
+    profile = tmp_path / "Profile"
+    profile.mkdir()
+
+    exit_code = cli.main(
+        [
+            "migrate",
+            str(tmp_path / "Mail" / "V10"),
+            str(profile),
+            "Mail/Local Folders/Imports",
+            "--dry-run",
+        ]
+    )
+
+    captured = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Dry run complete" in captured
+    assert "messages across" in captured
+    target = profile / "Mail/Local Folders/Imports.sbd/Account.sbd/Inbox"
+    assert not target.exists()
 
 
 def test_list_command_outputs_counts(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

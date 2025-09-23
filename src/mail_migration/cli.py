@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 from typing import Callable
 
+from mail_migration import migrate as migration
 from mail_migration.readers import apple_mbox, mail_store
 
 
@@ -40,12 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     migrate_parser = subparsers.add_parser(
         "migrate",
-        help="Migrate Apple Mail exports into a Thunderbird local folder.",
+        help="Migrate mailboxes from the on-disk Apple Mail store into Thunderbird.",
     )
     migrate_parser.add_argument(
-        "source_mbox",
+        "mail_store_root",
         type=Path,
-        help="Path to the Apple Mail exported .mbox bundle to import.",
+        help="Path to the Mail/V10 directory or a subdirectory containing Apple Mail mailboxes.",
     )
     migrate_parser.add_argument(
         "thunderbird_profile",
@@ -59,6 +60,10 @@ def build_parser() -> argparse.ArgumentParser:
             "Relative path within the Thunderbird profile for the target local folder, "
             "e.g. 'Mail/Local Folders/Imports'."
         ),
+    )
+    migrate_parser.add_argument(
+        "--prefix",
+        help="Only migrate mailboxes whose path starts with the provided prefix (case-sensitive).",
     )
     migrate_parser.add_argument(
         "--dry-run",
@@ -87,7 +92,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     elif args.command == "list-store":
         args.store_root = args.store_root.resolve()
     elif args.command == "migrate":
-        args.source_mbox = args.source_mbox.resolve()
+        args.mail_store_root = args.mail_store_root.resolve()
         args.thunderbird_profile = args.thunderbird_profile.resolve()
         args.local_folder_path = Path(args.local_folder_path)
         if args.local_folder_path.is_absolute():
@@ -160,14 +165,23 @@ def _handle_list_store(args: argparse.Namespace) -> int:
 
 
 def _handle_migrate(args: argparse.Namespace) -> int:
-    source_mbox: Path = args.source_mbox
-    profile: Path = args.thunderbird_profile
+    stats = migration.migrate_mail_store(
+        store_root=args.mail_store_root,
+        profile_root=args.thunderbird_profile,
+        local_folder_path=args.local_folder_path,
+        prefix=args.prefix,
+        dry_run=args.dry_run,
+    )
 
-    if not source_mbox.exists():
-        raise FileNotFoundError(f"Apple Mail export not found: {source_mbox}")
-    if not profile.exists():
-        raise FileNotFoundError(f"Thunderbird profile not found: {profile}")
-    # Real implementation will validate folder structure and perform migration steps here.
+    outcome = "Dry run" if stats.dry_run else "Migration"
+    print(
+        f"{outcome} complete: {stats.migrated_messages} messages across "
+        f"{stats.migrated_mailboxes} mailboxes."
+    )
+    if stats.skipped_partials:
+        print(f"  Skipped {stats.skipped_partials} partial messages.")
+    if stats.skipped_by_prefix:
+        print(f"  {stats.skipped_by_prefix} mailboxes excluded by prefix filter.")
     return 0
 
 

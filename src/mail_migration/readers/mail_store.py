@@ -36,6 +36,15 @@ class MailStoreSummary:
     segments: Tuple[MailStoreNameSegment, ...]
 
 
+@dataclass(frozen=True)
+class MailStoreMessage:
+    """Representation of a single message stored in a mailbox."""
+
+    mailbox: MailStoreSummary
+    message_path: Path
+    is_partial: bool
+
+
 def summarize_mail_store(store_root: Path) -> list[MailStoreSummary]:
     """Return summaries for each mailbox beneath ``store_root``.
 
@@ -62,6 +71,25 @@ def summarize_mail_store(store_root: Path) -> list[MailStoreSummary]:
         )
     summaries.sort(key=lambda summary: summary.display_path.lower())
     return summaries
+
+
+def iter_mailbox_messages(summary: MailStoreSummary) -> Iterator[MailStoreMessage]:
+    """Yield all messages contained in ``summary``'s mailbox directory."""
+
+    for root, dirs, files in os.walk(summary.mailbox_dir):
+        dirs[:] = [d for d in dirs if not (Path(root) / d).name.endswith(".mbox")]
+        root_path = Path(root)
+        if "Messages" not in root_path.parts:
+            continue
+        for filename in sorted(files):
+            if not filename.endswith(".emlx"):
+                continue
+            message_path = root_path / filename
+            yield MailStoreMessage(
+                mailbox=summary,
+                message_path=message_path,
+                is_partial=filename.endswith(".partial.emlx"),
+            )
 
 
 def _should_include_directory_names(root: Path) -> bool:
@@ -151,4 +179,10 @@ def _count_messages(mailbox_dir: Path) -> Tuple[int, int]:
     return stored, partial
 
 
-__all__ = ["MailStoreNameSegment", "MailStoreSummary", "summarize_mail_store"]
+__all__ = [
+    "MailStoreMessage",
+    "MailStoreNameSegment",
+    "MailStoreSummary",
+    "iter_mailbox_messages",
+    "summarize_mail_store",
+]

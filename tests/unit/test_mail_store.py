@@ -54,6 +54,22 @@ def test_mailbox_name_defaults_to_stem(tmp_path: Path) -> None:
     assert summaries[0].stored_messages == 1
 
 
+def test_iter_mailbox_messages_reports_partials(tmp_path: Path) -> None:
+    mailbox = tmp_path / "Account" / "Inbox.mbox"
+    messages_dir = mailbox / "UUID" / "Data" / "0" / "0" / "Messages"
+    messages_dir.mkdir(parents=True)
+    _write_info_plist(mailbox, "Inbox")
+    _make_emlx(messages_dir, "1.emlx")
+    _make_emlx(messages_dir, "2.partial.emlx")
+    (messages_dir / "ignore.txt").write_text("not a message")
+
+    summary = mail_store.summarize_mail_store(mailbox)[0]
+
+    message_entries = list(mail_store.iter_mailbox_messages(summary))
+    assert [entry.is_partial for entry in message_entries] == [False, True]
+    assert message_entries[0].mailbox is summary
+
+
 def test_summarize_mail_store_includes_account_prefix(tmp_path: Path) -> None:
     store_root = tmp_path / "Mail" / "V10"
 
