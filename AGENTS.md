@@ -11,7 +11,8 @@
 - `make setup` creates/updates `.venv` and installs project + dev extras.
 - `make lint` runs formatters and static analysis (`ruff`, `black`) over `src/` and `tests/`.
 - `make test` executes the pytest suite with the repository on `PYTHONPATH`.
-- `bin/mail-migration /path/to/export.mbox ~/Library/Thunderbird/Profiles/xyz.default "Mail/Local Folders/Imports"` is the typical end-to-end invocation.
+- `bin/mail-migration list <export.mbox>` shows each mailbox with Stored (on-disk) and Indexed (Apple Mail table-of-contents) message counts.
+- `bin/mail-migration migrate <export.mbox> <profile> "Mail/Local Folders/Imports"` performs the local migration (use `--dry-run` for validation).
 
 ## Coding Style & Naming Conventions
 - Use 4-space indentation for Python and adhere to `ruff`/`black` defaults.

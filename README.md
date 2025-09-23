@@ -14,9 +14,17 @@ make setup
 source .venv/bin/activate
 ```
 
-Run the CLI once you have an Apple Mail export (`.mbox` bundle) and a Thunderbird profile:
+List mailboxes within an Apple Mail export and see both on-disk and indexed counts:
 ```bash
-bin/mail-migration /path/to/export.mbox ~/Library/Thunderbird/Profiles/xyz.default "Mail/Local Folders/Imports"
+bin/mail-migration list /path/to/export.mbox
+# => Name, Stored (actual .emlx/.mbox messages), Indexed (Apple Mail table_of_contents)
+```
+
+Run the migration dry-run once you have an Apple Mail export (`.mbox` bundle) and a Thunderbird profile:
+```bash
+bin/mail-migration migrate /path/to/export.mbox \
+  ~/Library/Thunderbird/Profiles/xyz.default \
+  "Mail/Local Folders/Imports" --dry-run
 ```
 `Mail/Local Folders/Imports` is stored relative to the profile root and can be adjusted as needed.
 
