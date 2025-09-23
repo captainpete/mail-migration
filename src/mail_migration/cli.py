@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 from typing import Callable
 
-from mail_migration.readers import apple_mbox
+from mail_migration.readers import apple_mbox, mail_store
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -25,7 +25,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Path to the Apple Mail exported .mbox bundle to inspect.",
     )
-    list_parser.set_defaults(handler=_handle_list)
+    list_parser.set_defaults(handler=_handle_list_export)
+
+    list_store_parser = subparsers.add_parser(
+        "list-store",
+        help="List mailboxes and message counts directly from the Apple Mail store.",
+    )
+    list_store_parser.add_argument(
+        "store_root",
+        type=Path,
+        help="Path to the Mail/V10 directory, an account folder, or a specific *.mbox directory.",
+    )
+    list_store_parser.set_defaults(handler=_handle_list_store)
 
     migrate_parser = subparsers.add_parser(
         "migrate",
@@ -73,13 +84,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     if args.command == "list":
         args.source_mbox = args.source_mbox.resolve()
+    elif args.command == "list-store":
+        args.store_root = args.store_root.resolve()
     elif args.command == "migrate":
         args.source_mbox = args.source_mbox.resolve()
         args.thunderbird_profile = args.thunderbird_profile.resolve()
         args.local_folder_path = Path(args.local_folder_path)
         if args.local_folder_path.is_absolute():
             parser.error("local_folder_path must be relative to the Thunderbird profile root")
-    else:  # pragma: no cover - safeguarded by argparse required=True
+    else:  # pragma: no cover
         parser.error("Unsupported command")
 
     return args
@@ -91,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     return handler(args)
 
 
-def _handle_list(args: argparse.Namespace) -> int:
+def _handle_list_export(args: argparse.Namespace) -> int:
     source_mbox: Path = args.source_mbox
     if not source_mbox.exists():
         raise FileNotFoundError(f"Apple Mail export not found: {source_mbox}")
@@ -109,6 +122,40 @@ def _handle_list(args: argparse.Namespace) -> int:
     for summary in summaries:
         name = summary.display_path.ljust(name_width)
         print(f"  {name}  {summary.stored_messages:6d}  {summary.indexed_messages:7d}")
+    return 0
+
+
+def _handle_list_store(args: argparse.Namespace) -> int:
+    store_root: Path = args.store_root
+    summaries = mail_store.summarize_mail_store(store_root)
+    if not summaries:
+        print(f"No mailboxes found in {store_root}")
+        return 0
+
+    name_width = max(len(summary.display_path) for summary in summaries)
+    print(f"Mailboxes discovered in {store_root}:")
+    header = f"  {'Name'.ljust(name_width)}  {'Messages':>8}  {'Partial':>8}"
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+    for summary in summaries:
+        if summary.segments:
+            name_parts = []
+            total_parts = len(summary.segments)
+            for index, segment in enumerate(summary.segments):
+                piece = segment.value
+                if index < total_parts - 1:
+                    piece = f"{piece}/"
+                if segment.is_directory:
+                    piece = f"\033[2m{piece}\033[22m"
+                name_parts.append(piece)
+            name_display = "".join(name_parts)
+        else:  # pragma: no cover - defensive, segments always populated
+            name_display = summary.display_path
+
+        padding = " " * (name_width - len(summary.display_path))
+        print(
+            f"  {name_display}{padding}  {summary.stored_messages:8d}  {summary.partial_messages:8d}"
+        )
     return 0
 
 

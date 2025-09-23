@@ -1,11 +1,18 @@
 """Tests for the mail migration CLI argument parsing and commands."""
 
+import plistlib
 import struct
 from pathlib import Path
 
 import pytest
 
 from mail_migration import cli
+
+
+def _write_info_plist(directory: Path, name: str) -> None:
+    with (directory / "Info.plist").open("wb") as handle:
+        plistlib.dump({"MailboxName": name}, handle)
+
 
 TOC_MAGIC = 0x000DBBA0
 
@@ -88,3 +95,26 @@ def test_list_command_outputs_counts(tmp_path: Path, capsys: pytest.CaptureFixtu
 def test_list_command_missing_source() -> None:
     with pytest.raises(FileNotFoundError):
         cli.main(["list", "/nonexistent/path/export.mbox"])
+
+
+def test_list_store_command_outputs_counts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    store_root = tmp_path / "Mail" / "V10" / "Account"
+    mailbox = store_root / "Inbox.mbox"
+    mailbox.mkdir(parents=True)
+    _write_info_plist(mailbox, "Inbox")
+    messages = mailbox / "UUID" / "Data" / "0" / "0" / "Messages"
+    messages.mkdir(parents=True)
+    (messages / "1.emlx").write_text("Subject: Hello\n\nBody")
+    (messages / "2.partial.emlx").write_text("Subject: Partial\n\nBody")
+
+    exit_code = cli.main(["list-store", str(store_root)])
+
+    captured = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Mailboxes discovered" in captured
+    inbox_line = next(line for line in captured.splitlines() if "Inbox" in line)
+    columns = inbox_line.split()
+    assert columns[0] == "Inbox"
+    assert columns[-2:] == ["1", "1"]
