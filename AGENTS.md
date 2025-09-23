@@ -1,30 +1,32 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Place migration logic under `src/` using subfolders per provider (e.g., `src/google_workspace/`).
-- Keep reusable connectors and helpers inside `src/lib/` with clear module boundaries.
-- Store configuration samples in `config/` and redact any secrets before committing.
-- Write automated tests under `tests/` mirroring the `src/` hierarchy; fixtures belong in `tests/fixtures/`.
-- Save command-line entry points in `bin/`, marking executables with the correct shebang and `chmod +x`.
+- Core logic lives in `src/mail_migration/`; keep providers in `readers/` and Thunderbird adapters in `writers/`.
+- Shared helpers belong in `src/lib/`; add modules when functionality is reused across readers and writers.
+- CLI entry lives in `src/mail_migration/cli.py` with an executable shim in `bin/mail-migration`.
+- Tests reside in `tests/`, mirroring `src/`; add fixtures under `tests/fixtures/` when you need canned mailbox exports.
+- Versioning and tool configuration sit in `pyproject.toml`; update it when dependencies shift.
 
 ## Build, Test, and Development Commands
-- `make setup` installs toolchain dependencies (Python env, Node tooling) and prepares local `.env` templates.
-- `make lint` runs formatters and static analysis across Python (`ruff`) and JavaScript (`eslint`).
-- `make test` executes the full automated suite, including integration shims in `tests/integration/`.
-- `python -m src.cli migrate --dry-run` exercises the default end-to-end path without mutating mailboxes.
+- `make setup` creates/updates `.venv` and installs project + dev extras.
+- `make lint` runs formatters and static analysis (`ruff`, `black`) over `src/` and `tests/`.
+- `make test` executes the pytest suite with the repository on `PYTHONPATH`.
+- `bin/mail-migration /path/to/export.mbox ~/Library/Thunderbird/Profiles/xyz.default "Mail/Local Folders/Imports"` is the typical end-to-end invocation.
 
 ## Coding Style & Naming Conventions
-- Follow 4-space indentation for Python modules and 2-space indentation for JavaScript tooling scripts.
-- Adopt `snake_case` for functions, `PascalCase` for classes, and prefix async helpers with `async_`.
-- Keep modules small (<300 lines) and favor dependency injection over global state.
-- Run `pre-commit run --all-files` before pushing; hooks enforce formatting (`black`, `ruff`, `eslint`).
+- Use 4-space indentation for Python and adhere to `ruff`/`black` defaults.
+- Modules expose functions/classes via `snake_case`/`PascalCase`; keep CLI-only helpers private (`_helper`).
+- Prefer small, composable functions; route filesystem interactions through adapters for testability.
+- Run `pre-commit run --all-files` before pushing to ensure consistent formatting.
 
 ## Testing Guidelines
-- Use `pytest` for unit tests and `pytest -m integration` for slower provider-backed scenarios.
-- Name test files `test_<subject>.py` and parameterize cross-provider cases for coverage clarity.
-- Target ≥90% line coverage for core modules; surface gaps in the PR checklist if below threshold.
-- Record credentials-sensitive fixtures in `.git-crypt`; never commit live tokens.
+- Write unit tests with `pytest`; integration scenarios should target realistic mbox samples under `tests/fixtures/`.
+- Name test files `test_<subject>.py` and group scenario-specific tests with parametrization.
+- Keep coverage ≥90% for `src/mail_migration/`; note exceptions in PR descriptions.
+- Use temporary directories (`tmp_path`) when touching filesystem paths inside tests.
 
 ## Commit & Pull Request Guidelines
-- Prefer Conventional Commit prefixes (`feat:`, `fix:`, `chore:`) to signal intent; squash minor fixups locally.
-- Include screenshots or terminal transcripts for UI/CLI changes affecting output formatting.
+- Follow Conventional Commits (`feat:`, `fix:`, `chore:`) and keep messages focused and present-tense.
+- Reference migration tickets or GitHub issues; outline rollback or manual verification steps when relevant.
+- Include CLI transcripts or diff snippets when behavior changes.
+- Request review from someone comfortable with Thunderbird internals when modifying writers.

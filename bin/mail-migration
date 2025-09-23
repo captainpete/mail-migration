@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Launcher script for mail migration CLI."""
+
+from mail_migration.cli import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
