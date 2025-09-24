@@ -8,6 +8,8 @@ from email.parser import BytesHeaderParser
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
+from tqdm import tqdm
+
 from lib import emlx
 from mail_migration.readers import mail_store, mail_store_scan
 from mail_migration.writers import thunderbird_local
@@ -33,6 +35,7 @@ def migrate_mail_store(
     *,
     prefix: str | None = None,
     dry_run: bool = False,
+    show_progress: bool = False,
 ) -> MigrationStats:
     """Migrate messages from ``store_root`` into a Thunderbird local folder."""
 
@@ -44,6 +47,12 @@ def migrate_mail_store(
         raise ValueError("local_folder_path must be relative to the Thunderbird profile root")
 
     summaries = mail_store.summarize_mail_store(store_root)
+    if prefix:
+        target_summaries = [s for s in summaries if s.display_path.startswith(prefix)]
+        skipped_by_prefix = len(summaries) - len(target_summaries)
+    else:
+        target_summaries = list(summaries)
+        skipped_by_prefix = 0
 
     header_parser = BytesHeaderParser(policy=policy.compat32)
 
@@ -66,14 +75,19 @@ def migrate_mail_store(
     migrated_messages = 0
     recovered_partials = 0
     unresolved_partials = 0
-    skipped_by_prefix = 0
 
-    for summary in summaries:
-        if prefix and not summary.display_path.startswith(prefix):
-            skipped_by_prefix += 1
-            continue
+    total_messages = sum(
+        summary.stored_messages + summary.partial_messages for summary in target_summaries
+    )
+    progress = None
+    if show_progress and total_messages:
+        progress = tqdm(total=total_messages, desc="Migrating Mail", unit="msg")
 
+    for summary in target_summaries:
         processed += 1
+
+        if progress:
+            progress.set_postfix_str(summary.display_path, refresh=False)
 
         segment_names = _segment_values(summary.segments)
         if dry_run:
@@ -89,6 +103,8 @@ def migrate_mail_store(
                 entry = recovery_by_path.get(message.message_path.resolve())
                 if entry is None or entry.resolved_path is None:
                     unresolved_partials += 1
+                    if progress:
+                        progress.update(1)
                     continue
                 resolved_path = entry.resolved_path
                 if not resolved_path.exists():
@@ -99,6 +115,8 @@ def migrate_mail_store(
             record = emlx.read_emlx(payload_path)
             payload = record.payload
             if not payload:
+                if progress:
+                    progress.update(1)
                 continue
             headers = header_parser.parsebytes(payload)
             from_header = headers.get("From")
@@ -116,9 +134,14 @@ def migrate_mail_store(
 
             mailbox_messages += 1
             migrated_messages += 1
+            if progress:
+                progress.update(1)
 
         if mailbox_messages > 0 or not dry_run:
             migrated_mailboxes += 1
+
+    if progress:
+        progress.close()
 
     return MigrationStats(
         processed_mailboxes=processed,

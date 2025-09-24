@@ -71,6 +71,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Perform validation without writing to the Thunderbird profile.",
     )
     migrate_parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable progress bar output during the migration run.",
+    )
+    migrate_parser.add_argument(
         "--verbose",
         action="store_true",
         help="Increase logging verbosity for troubleshooting.",
@@ -200,6 +205,7 @@ def _handle_migrate(args: argparse.Namespace) -> int:
         local_folder_path=args.local_folder_path,
         prefix=args.prefix,
         dry_run=args.dry_run,
+        show_progress=not args.no_progress,
     )
 
     outcome = "Dry run" if stats.dry_run else "Migration"
