@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from mail_migration import migrate as migration
-from mail_migration.readers import apple_mbox, mail_store
+from mail_migration.readers import apple_mbox, mail_store, mail_store_scan
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -77,6 +77,27 @@ def build_parser() -> argparse.ArgumentParser:
     )
     migrate_parser.set_defaults(handler=_handle_migrate)
 
+    scan_parser = subparsers.add_parser(
+        "scan",
+        help="Scan the Apple Mail store for partial messages that could be recovered.",
+    )
+    scan_parser.add_argument(
+        "mail_store_root",
+        type=Path,
+        help="Path to the Mail/V10 directory or subset to scan.",
+    )
+    scan_parser.add_argument(
+        "--report",
+        type=Path,
+        help="Optional path to write a JSON report describing partial recovery matches.",
+    )
+    scan_parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable the progress bar output during the scan.",
+    )
+    scan_parser.set_defaults(handler=_handle_scan)
+
     return parser
 
 
@@ -97,6 +118,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         args.local_folder_path = Path(args.local_folder_path)
         if args.local_folder_path.is_absolute():
             parser.error("local_folder_path must be relative to the Thunderbird profile root")
+    elif args.command == "scan":
+        args.mail_store_root = args.mail_store_root.resolve()
+        if args.report is not None:
+            args.report = args.report.resolve()
     else:  # pragma: no cover
         parser.error("Unsupported command")
 
@@ -182,6 +207,36 @@ def _handle_migrate(args: argparse.Namespace) -> int:
         print(f"  Skipped {stats.skipped_partials} partial messages.")
     if stats.skipped_by_prefix:
         print(f"  {stats.skipped_by_prefix} mailboxes excluded by prefix filter.")
+    return 0
+
+
+def _handle_scan(args: argparse.Namespace) -> int:
+    report = mail_store_scan.scan_mail_store(
+        args.mail_store_root,
+        show_progress=not args.no_progress,
+    )
+
+    print(
+        "Scan complete: "
+        f"{report.total_full_messages} full messages, "
+        f"{report.total_partial_messages} partial messages."
+    )
+    print(
+        f"Resolved partials: {report.resolved_partials}; "
+        f"Unresolved: {report.unresolved_partials}."
+    )
+    if report.duplicate_keys:
+        print(
+            f"Duplicate keys: {report.duplicate_keys} "
+            f"({report.duplicate_messages} additional copies)."
+        )
+    if report.mismatched_size_keys:
+        print(f"Warning: {report.mismatched_size_keys} duplicate keys have differing sizes.")
+
+    if args.report is not None:
+        mail_store_scan.write_report(args.report, report, args.mail_store_root)
+        print(f"Report written to {args.report}")
+
     return 0
 
 

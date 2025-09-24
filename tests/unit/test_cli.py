@@ -1,5 +1,6 @@
 """Tests for the mail migration CLI argument parsing and commands."""
 
+import json
 import plistlib
 import struct
 from pathlib import Path
@@ -111,6 +112,34 @@ def test_migrate_command_dry_run(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert "messages across" in captured
     target = profile / "Mail/Local Folders/Imports.sbd/Account.sbd/Inbox"
     assert not target.exists()
+
+
+def test_scan_command_generates_report(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    store_root = tmp_path / "Mail" / "V10" / "Account" / "Inbox.mbox"
+    store_root.mkdir(parents=True)
+    _write_info_plist(store_root, "Inbox")
+    messages = store_root / "UUID" / "Data" / "0" / "0" / "Messages"
+    _write_emlx(messages, "1.emlx", subject="Scan Test")
+    _write_emlx(messages, "2.partial.emlx", subject="Scan Test")
+
+    report_path = tmp_path / "scan.json"
+
+    exit_code = cli.main(
+        [
+            "scan",
+            str(tmp_path / "Mail" / "V10"),
+            "--report",
+            str(report_path),
+            "--no-progress",
+        ]
+    )
+
+    captured = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Scan complete" in captured
+    assert report_path.exists()
+    data = json.loads(report_path.read_text())
+    assert data["summary"]["total_partial_messages"] == 1
 
 
 def test_list_command_outputs_counts(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

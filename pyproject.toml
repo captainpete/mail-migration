@@ -9,7 +9,9 @@ description = "Utilities for migrating Apple Mail exports into Thunderbird local
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{name = "Peter Hollows"}]
-dependencies = []
+dependencies = [
+    "tqdm>=4.66",
+]
 
 [project.optional-dependencies]
 dev = [
