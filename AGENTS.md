@@ -12,6 +12,7 @@
 - `make lint` runs formatters and static analysis (`ruff`, `black`) over `src/` and `tests/`.
 - `make test` executes the pytest suite with the repository on `PYTHONPATH`.
 - `bin/mail-migration list <export.mbox>` shows each mailbox with Stored (on-disk) and Indexed (Apple Mail table-of-contents) message counts.
+- `bin/mail-migration list-store <Mail/V10>` enumerates the Mail store directly, reporting fully downloaded and partial `.emlx` counts per mailbox.
 - `bin/mail-migration migrate <export.mbox> <profile> "Mail/Local Folders/Imports"` performs the local migration (use `--dry-run` for validation).
 
 ## Coding Style & Naming Conventions

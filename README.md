@@ -20,6 +20,13 @@ bin/mail-migration list /path/to/export.mbox
 # => Name, Stored (actual .emlx/.mbox messages), Indexed (Apple Mail table_of_contents)
 ```
 
+List mailboxes directly from the live Apple Mail store (`~/Library/Mail/V10`) and check
+for partial downloads:
+```bash
+bin/mail-migration list-store ~/Library/Mail/V10
+# => Name, Messages (fully downloaded .emlx), Partial (.partial.emlx placeholders)
+```
+
 Run the migration dry-run once you have an Apple Mail export (`.mbox` bundle) and a Thunderbird profile:
 ```bash
 bin/mail-migration migrate /path/to/export.mbox \
