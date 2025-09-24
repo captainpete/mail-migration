@@ -15,11 +15,21 @@ def _write_info_plist(directory: Path, name: str) -> None:
         plistlib.dump({"MailboxName": name}, handle)
 
 
-def _write_emlx(target: Path, headers: dict[str, str], body: str) -> None:
+def _write_emlx(
+    target: Path,
+    headers: dict[str, str],
+    body: str,
+    *,
+    metadata: dict[str, object] | None = None,
+) -> None:
     payload_lines = [f"{key}: {value}" for key, value in headers.items()]
     payload = ("\n".join(payload_lines) + "\n\n" + body + "\n").encode("utf-8")
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(str(len(payload)).encode("ascii") + b"\n" + payload)
+    trailer = b""
+    if metadata:
+        plist = plistlib.dumps(metadata, fmt=plistlib.FMT_BINARY)
+        trailer = b"\n" + plist
+    target.write_bytes(str(len(payload)).encode("ascii") + b"\n" + payload + trailer)
 
 
 def test_migrate_mail_store_transfers_messages(tmp_path: Path) -> None:
@@ -35,6 +45,7 @@ def test_migrate_mail_store_transfers_messages(tmp_path: Path) -> None:
             "Subject": "Migrated Message",
         },
         "Hello from Apple Mail",
+        metadata={"flags": (1 << 0) | (0x3F << 10)},
     )
     _write_emlx(
         mailbox_dir / "UUID" / "Data" / "0" / "0" / "Messages" / "2.partial.emlx",
@@ -61,6 +72,8 @@ def test_migrate_mail_store_transfers_messages(tmp_path: Path) -> None:
     contents = mailbox_path.read_text()
     assert "Migrated Message" in contents
     assert contents.startswith("From alice@example.com ")
+    assert "X-Mozilla-Status: 0001" in contents
+    assert "X-Mozilla-Status2: 00000000" in contents
 
 
 def test_migrate_mail_store_respects_prefix_and_dry_run(tmp_path: Path) -> None:
@@ -109,6 +122,12 @@ def test_migrate_mail_store_respects_prefix_and_dry_run(tmp_path: Path) -> None:
     assert not target.exists()
 
 
+def test_status_headers_ignore_attachment_sentinel() -> None:
+    headers = migrate._derive_status_headers({"flags": (0x3F << 10)})
+    assert ("X-Mozilla-Status", "0000") in headers
+    assert ("X-Mozilla-Status2", "00000000") in headers
+
+
 def test_migrate_mail_store_recovers_partial(tmp_path: Path) -> None:
     store_root = tmp_path / "Mail" / "V10"
 
@@ -132,6 +151,7 @@ def test_migrate_mail_store_recovers_partial(tmp_path: Path) -> None:
         full_mailbox / "UUID" / "Data" / "0" / "0" / "Messages" / "10.emlx",
         headers,
         body_full,
+        metadata={"flags": (1 << 0) | (1 << 8) | (2 << 10)},
     )
     _write_emlx(
         partial_mailbox / "UUID" / "Data" / "0" / "0" / "Messages" / "20.partial.emlx",
@@ -156,6 +176,8 @@ def test_migrate_mail_store_recovers_partial(tmp_path: Path) -> None:
     contents = mailbox_path.read_text()
     assert "Recovered Message" in contents
     assert "Full body with attachments" in contents
+    assert "X-Mozilla-Status: 1001" in contents
+    assert "X-Mozilla-Status2: 10000000" in contents
 
 
 def test_migrate_mail_store_recovery_missing_file(

@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from email import policy
 from email.parser import BytesHeaderParser
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
+from lib import emlx
 from mail_migration.readers import mail_store, mail_store_scan
 from mail_migration.writers import thunderbird_local
 
@@ -95,12 +96,14 @@ def migrate_mail_store(
                 payload_path = resolved_path
                 recovered_partials += 1
 
-            payload = _read_emlx_payload(payload_path)
+            record = emlx.read_emlx(payload_path)
+            payload = record.payload
             if not payload:
                 continue
             headers = header_parser.parsebytes(payload)
             from_header = headers.get("From")
             date_header = headers.get("Date")
+            status_headers = _derive_status_headers(record.metadata)
 
             if not dry_run:
                 thunderbird_local.append_message(
@@ -108,6 +111,7 @@ def migrate_mail_store(
                     from_header=from_header,
                     date_header=date_header,
                     payload=payload,
+                    extra_headers=status_headers,
                 )
 
             mailbox_messages += 1
@@ -127,13 +131,6 @@ def migrate_mail_store(
     )
 
 
-def _read_emlx_payload(path: Path) -> bytes:
-    with path.open("rb") as handle:
-        handle.readline()  # leading byte-count header
-        payload = handle.read()
-    return payload
-
-
 def _segment_values(segments: Sequence[mail_store.MailStoreNameSegment]) -> Iterable[str]:
     return [segment.value for segment in segments]
 
@@ -143,6 +140,69 @@ def _compute_mailbox_path(base_mailbox: Path, segments: Iterable[str]) -> Path:
     for segment in segments:
         current = current.with_name(current.name + ".sbd") / segment
     return current
+
+
+def _derive_status_headers(
+    metadata: Mapping[str, object] | None,
+) -> list[tuple[str, str]]:
+    apple_flags = _extract_flags(metadata)
+    status, status2 = _convert_flags(apple_flags)
+
+    formatted_status = f"{status:04X}"
+    formatted_status2 = f"{status2:08X}"
+
+    return [
+        ("X-Mozilla-Status", formatted_status),
+        ("X-Mozilla-Status2", formatted_status2),
+    ]
+
+
+def _extract_flags(metadata: Mapping[str, object] | None) -> int:
+    if not metadata:
+        return 0
+
+    candidate = metadata.get("flags") or metadata.get("Flags")
+    if isinstance(candidate, bool):
+        return int(candidate)
+    if isinstance(candidate, (int, float)):
+        return int(candidate)
+    if isinstance(candidate, (bytes, bytearray)):
+        try:
+            return int(candidate.decode("ascii"), 0)
+        except (UnicodeDecodeError, ValueError):
+            return 0
+    if isinstance(candidate, str):
+        try:
+            return int(candidate, 0)
+        except ValueError:
+            return 0
+    return 0
+
+
+def _convert_flags(apple_flags: int) -> tuple[int, int]:
+    status = 0
+    status2 = 0
+
+    mappings = (
+        (1 << 0, 0x00000001),  # read
+        (1 << 2, 0x00000002),  # replied
+        (1 << 4, 0x00000004),  # flagged/starred
+        (1 << 8, 0x00001000),  # forwarded
+        (1 << 9, 0x00002000),  # redirected
+    )
+
+    for apple_bit, mozilla_flag in mappings:
+        if apple_flags & apple_bit:
+            if mozilla_flag <= 0xFFFF:
+                status |= mozilla_flag
+            else:
+                status2 |= mozilla_flag
+
+    attachment_count = (apple_flags >> 10) & 0x3F
+    if attachment_count and attachment_count != 0x3F:
+        status2 |= 0x10000000
+
+    return status, status2
 
 
 __all__ = ["MigrationStats", "migrate_mail_store"]

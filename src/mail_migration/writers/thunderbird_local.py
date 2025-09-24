@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 
 
 def _resolve_sender(from_header: str | None) -> str:
@@ -91,10 +91,13 @@ def append_message(
     from_header: str | None,
     date_header: str | None,
     payload: bytes,
+    extra_headers: Sequence[tuple[str, str]] | None = None,
 ) -> None:
     """Append a message payload to the provided Thunderbird mbox file."""
 
     separator = format_mbox_from_line(from_header, date_header).encode("utf-8")
+    if extra_headers:
+        payload = _inject_headers(payload, extra_headers)
     body = escape_from_lines(payload)
     if not body.endswith(b"\n"):
         body += b"\n"
@@ -103,6 +106,41 @@ def append_message(
         handle.write(separator)
         handle.write(body)
         handle.write(b"\n")
+
+
+def _inject_headers(message: bytes, headers: Sequence[tuple[str, str]]) -> bytes:
+    if not headers:
+        return message
+
+    newline = b"\r\n" if b"\r\n" in message else b"\n"
+    separator = newline + newline
+
+    if separator in message:
+        header_blob, body = message.split(separator, 1)
+    else:
+        header_blob = message
+        body = b""
+
+    lines = header_blob.split(newline)
+    filtered: list[bytes] = []
+    skip_continuation = False
+    for line in lines:
+        if skip_continuation:
+            if line.startswith((b" ", b"\t")):
+                continue
+            skip_continuation = False
+        lower = line.split(b":", 1)[0].strip().lower() if b":" in line else line.lower()
+        if lower in {b"x-mozilla-status", b"x-mozilla-status2"}:
+            skip_continuation = True
+            continue
+        filtered.append(line)
+
+    formatted = [f"{name}: {value}".encode("utf-8") for name, value in headers]
+    new_header_blob = newline.join(filtered + formatted)
+
+    if body:
+        return new_header_blob + separator + body
+    return new_header_blob + separator
 
 
 __all__ = [

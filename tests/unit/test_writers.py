@@ -81,3 +81,30 @@ def test_append_message_appends_payload(tmp_path: Path) -> None:
     assert contents.count("From alice@example.com") == 1
     assert contents.count("From bob@example.com") == 1
     assert ">From embedded" in contents
+
+
+def test_append_message_replaces_status_headers(tmp_path: Path) -> None:
+    profile = tmp_path / "Profile"
+    profile.mkdir()
+    base = thunderbird_local.ensure_local_folder(profile, Path("Mail/Local Folders/Imports"))
+    mailbox = thunderbird_local.ensure_mailbox_path(base, ["Inbox"])
+
+    payload = (
+        b"X-Mozilla-Status: FFFF\n" b"X-Mozilla-Status2: FFFFFFFF\n" b"Subject: Existing\n\nBody\n"
+    )
+    thunderbird_local.append_message(
+        mailbox,
+        from_header="Tester <tester@example.com>",
+        date_header="Wed, 03 Jan 2001 00:00:00 +0000",
+        payload=payload,
+        extra_headers=[
+            ("X-Mozilla-Status", "0001"),
+            ("X-Mozilla-Status2", "10000000"),
+        ],
+    )
+
+    contents = mailbox.read_text()
+    assert contents.count("X-Mozilla-Status: 0001") == 1
+    assert "X-Mozilla-Status: FFFF" not in contents
+    assert contents.count("X-Mozilla-Status2: 10000000") == 1
+    assert "X-Mozilla-Status2: FFFFFFFF" not in contents
