@@ -1,6 +1,7 @@
 """Tests for Thunderbird local folder helpers."""
 
 import re
+from email.header import Header
 from pathlib import Path
 
 import pytest
@@ -108,3 +109,14 @@ def test_append_message_replaces_status_headers(tmp_path: Path) -> None:
     assert "X-Mozilla-Status: FFFF" not in contents
     assert contents.count("X-Mozilla-Status2: 10000000") == 1
     assert "X-Mozilla-Status2: FFFFFFFF" not in contents
+
+
+def test_format_mbox_accepts_header_objects() -> None:
+    from_header = Header(charset="utf-8")
+    from_header.append("Support – AWS-Con Solutions", "utf-8")
+    from_header.append("<support@example.com>", "us-ascii")
+    date_header = Header("Mon, 01 Jan 2001 00:00:00 +0000", "us-ascii")
+
+    line = thunderbird_local.format_mbox_from_line(from_header, date_header)
+
+    assert line.startswith("From support@example.com ")

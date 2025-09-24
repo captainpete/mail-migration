@@ -45,7 +45,7 @@ def migrate_mail_store(
 
     summaries = mail_store.summarize_mail_store(store_root)
 
-    header_parser = BytesHeaderParser(policy=policy.default)
+    header_parser = BytesHeaderParser(policy=policy.compat32)
 
     recovery_report = mail_store_scan.scan_mail_store(
         store_root,

@@ -3,24 +3,40 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from email.header import Header
 from email.utils import parseaddr, parsedate_to_datetime
 from pathlib import Path
 from typing import Iterable, Sequence
 
 
-def _resolve_sender(from_header: str | None) -> str:
-    name, address = parseaddr(from_header or "")
+def _coerce_header(value: str | Header | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, Header):
+        return str(value)
+    if isinstance(value, bytes):
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return value.decode("latin-1", errors="replace")
+    return str(value)
+
+
+def _resolve_sender(from_header: str | Header | bytes | None) -> str:
+    raw = _coerce_header(from_header)
+    name, address = parseaddr(raw)
     if address:
         return address
-    if from_header:
-        return from_header.strip()
+    if raw:
+        return raw.strip()
     return "MAILER-DAEMON"
 
 
-def _resolve_timestamp(date_header: str | None) -> datetime:
-    if date_header:
+def _resolve_timestamp(date_header: str | Header | bytes | None) -> datetime:
+    raw_header = _coerce_header(date_header)
+    if raw_header:
         try:
-            parsed = parsedate_to_datetime(date_header)
+            parsed = parsedate_to_datetime(raw_header)
             if parsed is not None:
                 if parsed.tzinfo is None:
                     parsed = parsed.replace(tzinfo=timezone.utc)
@@ -30,7 +46,10 @@ def _resolve_timestamp(date_header: str | None) -> datetime:
     return datetime.now(timezone.utc).astimezone()
 
 
-def format_mbox_from_line(from_header: str | None, date_header: str | None) -> str:
+def format_mbox_from_line(
+    from_header: str | Header | bytes | None,
+    date_header: str | Header | bytes | None,
+) -> str:
     """Return an mbox-compatible ``From `` separator line."""
 
     sender = _resolve_sender(from_header)
