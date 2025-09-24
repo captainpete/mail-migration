@@ -92,6 +92,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional path to write a JSON report describing partial recovery matches.",
     )
     scan_parser.add_argument(
+        "--prefix",
+        help="Only scan mailboxes whose path starts with the provided prefix (case-sensitive).",
+    )
+    scan_parser.add_argument(
         "--no-progress",
         action="store_true",
         help="Disable the progress bar output during the scan.",
@@ -203,8 +207,10 @@ def _handle_migrate(args: argparse.Namespace) -> int:
         f"{outcome} complete: {stats.migrated_messages} messages across "
         f"{stats.migrated_mailboxes} mailboxes."
     )
-    if stats.skipped_partials:
-        print(f"  Skipped {stats.skipped_partials} partial messages.")
+    if stats.recovered_partials:
+        print(f"  Recovered {stats.recovered_partials} partial messages.")
+    if stats.unresolved_partials:
+        print(f"  Skipped {stats.unresolved_partials} partial messages.")
     if stats.skipped_by_prefix:
         print(f"  {stats.skipped_by_prefix} mailboxes excluded by prefix filter.")
     return 0
@@ -214,6 +220,7 @@ def _handle_scan(args: argparse.Namespace) -> int:
     report = mail_store_scan.scan_mail_store(
         args.mail_store_root,
         show_progress=not args.no_progress,
+        prefix=args.prefix,
     )
 
     print(

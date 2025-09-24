@@ -8,7 +8,7 @@ from email.parser import BytesHeaderParser
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from mail_migration.readers import mail_store
+from mail_migration.readers import mail_store, mail_store_scan
 from mail_migration.writers import thunderbird_local
 
 
@@ -19,7 +19,8 @@ class MigrationStats:
     processed_mailboxes: int
     migrated_mailboxes: int
     migrated_messages: int
-    skipped_partials: int
+    recovered_partials: int
+    unresolved_partials: int
     skipped_by_prefix: int
     dry_run: bool
 
@@ -45,6 +46,16 @@ def migrate_mail_store(
 
     header_parser = BytesHeaderParser(policy=policy.default)
 
+    recovery_report = mail_store_scan.scan_mail_store(
+        store_root,
+        show_progress=False,
+    )
+    recovery_by_path = {
+        entry.path.resolve(): entry
+        for entry in recovery_report.partial_entries
+        if entry.resolved_path is not None
+    }
+
     base_mailbox_path = profile_root / local_folder_path
     if not dry_run:
         base_mailbox_path = thunderbird_local.ensure_local_folder(profile_root, local_folder_path)
@@ -52,7 +63,8 @@ def migrate_mail_store(
     processed = 0
     migrated_mailboxes = 0
     migrated_messages = 0
-    skipped_partials = 0
+    recovered_partials = 0
+    unresolved_partials = 0
     skipped_by_prefix = 0
 
     for summary in summaries:
@@ -70,11 +82,20 @@ def migrate_mail_store(
 
         mailbox_messages = 0
         for message in mail_store.iter_mailbox_messages(summary):
-            if message.is_partial:
-                skipped_partials += 1
-                continue
+            payload_path = message.message_path
 
-            payload = _read_emlx_payload(message.message_path)
+            if message.is_partial:
+                entry = recovery_by_path.get(message.message_path.resolve())
+                if entry is None or entry.resolved_path is None:
+                    unresolved_partials += 1
+                    continue
+                resolved_path = entry.resolved_path
+                if not resolved_path.exists():
+                    raise FileNotFoundError(f"Recovered message not found: {resolved_path}")
+                payload_path = resolved_path
+                recovered_partials += 1
+
+            payload = _read_emlx_payload(payload_path)
             if not payload:
                 continue
             headers = header_parser.parsebytes(payload)
@@ -99,7 +120,8 @@ def migrate_mail_store(
         processed_mailboxes=processed,
         migrated_mailboxes=migrated_mailboxes,
         migrated_messages=migrated_messages,
-        skipped_partials=skipped_partials,
+        recovered_partials=recovered_partials,
+        unresolved_partials=unresolved_partials,
         skipped_by_prefix=skipped_by_prefix,
         dry_run=dry_run,
     )

@@ -72,10 +72,13 @@ def scan_mail_store(
     store_root: Path,
     *,
     show_progress: bool = True,
+    prefix: str | None = None,
 ) -> ScanReport:
     """Scan ``store_root`` to index full messages and locate partial recovery options."""
 
     summaries = mail_store.summarize_mail_store(store_root)
+    if prefix:
+        summaries = [s for s in summaries if s.display_path.startswith(prefix)]
     total_items = sum(s.stored_messages + s.partial_messages for s in summaries)
     header_parser = BytesHeaderParser(policy=policy.compat32)
 
