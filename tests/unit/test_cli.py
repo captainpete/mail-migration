@@ -35,20 +35,20 @@ def _write_table_of_contents(mailbox_dir: Path, count: int) -> None:
     toc_path.write_bytes(struct.pack(">II", TOC_MAGIC, count) + b"\x00" * 8)
 
 
-def test_parse_args_resolves_paths_for_migrate(tmp_path: Path) -> None:
+def test_parse_args_resolves_paths_for_migrate_store(tmp_path: Path) -> None:
     source = tmp_path / "Mail" / "V10"
     source.mkdir(parents=True)
     profile = tmp_path / "Profile.test"
     profile.mkdir()
     args = cli.parse_args(
         [
-            "migrate",
+            "migrate-store",
             str(source),
             str(profile),
             "Mail/Local Folders/Imports",
         ]
     )
-    assert args.command == "migrate"
+    assert args.command == "migrate-store"
     assert args.mail_store_root == source
     assert args.thunderbird_profile == profile
     assert args.local_folder_path == Path("Mail/Local Folders/Imports")
@@ -64,7 +64,7 @@ def test_parse_args_rejects_absolute_local_folder(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         cli.parse_args(
             [
-                "migrate",
+                "migrate-store",
                 str(source),
                 str(profile),
                 str(absolute_local),
@@ -72,13 +72,13 @@ def test_parse_args_rejects_absolute_local_folder(tmp_path: Path) -> None:
         )
 
 
-def test_main_migrate_raises_file_not_found(tmp_path: Path) -> None:
+def test_main_migrate_store_raises_file_not_found(tmp_path: Path) -> None:
     profile = tmp_path / "Profile"
     profile.mkdir()
     with pytest.raises(FileNotFoundError):
         cli.main(
             [
-                "migrate",
+                "migrate-store",
                 str(tmp_path / "missing-store"),
                 str(profile),
                 "Mail/Local Folders/Imports",
@@ -86,7 +86,7 @@ def test_main_migrate_raises_file_not_found(tmp_path: Path) -> None:
         )
 
 
-def test_migrate_command_dry_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_migrate_store_command_dry_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     store_root = tmp_path / "Mail" / "V10" / "Account" / "Inbox.mbox"
     store_root.mkdir(parents=True)
     _write_info_plist(store_root, "Inbox")
@@ -98,7 +98,7 @@ def test_migrate_command_dry_run(tmp_path: Path, capsys: pytest.CaptureFixture[s
 
     exit_code = cli.main(
         [
-            "migrate",
+            "migrate-store",
             str(tmp_path / "Mail" / "V10"),
             str(profile),
             "Mail/Local Folders/Imports",
@@ -114,7 +114,9 @@ def test_migrate_command_dry_run(tmp_path: Path, capsys: pytest.CaptureFixture[s
     assert not target.exists()
 
 
-def test_scan_command_generates_report(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_scan_store_command_generates_report(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     store_root = tmp_path / "Mail" / "V10" / "Account" / "Inbox.mbox"
     store_root.mkdir(parents=True)
     _write_info_plist(store_root, "Inbox")
@@ -126,7 +128,7 @@ def test_scan_command_generates_report(tmp_path: Path, capsys: pytest.CaptureFix
 
     exit_code = cli.main(
         [
-            "scan",
+            "scan-store",
             str(tmp_path / "Mail" / "V10"),
             "--report",
             str(report_path),
@@ -140,31 +142,6 @@ def test_scan_command_generates_report(tmp_path: Path, capsys: pytest.CaptureFix
     assert report_path.exists()
     data = json.loads(report_path.read_text())
     assert data["summary"]["total_partial_messages"] == 1
-
-
-def test_list_command_outputs_counts(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    export_root = tmp_path / "Export"
-    mailbox_dir = export_root / "Inbox.mbox"
-    messages_dir = mailbox_dir / "Messages"
-    messages_dir.mkdir(parents=True)
-    for idx in range(2):
-        (messages_dir / f"{idx}.emlx").write_text("dummy")
-    _write_table_of_contents(mailbox_dir, count=5)
-
-    exit_code = cli.main(["list", str(export_root)])
-
-    captured = capsys.readouterr().out
-    assert exit_code == 0
-    assert "Mailboxes discovered" in captured
-    assert "Stored" in captured
-    assert "Indexed" in captured
-    assert "Inbox" in captured
-    assert "2" in captured and "5" in captured
-
-
-def test_list_command_missing_source() -> None:
-    with pytest.raises(FileNotFoundError):
-        cli.main(["list", "/nonexistent/path/export.mbox"])
 
 
 def test_list_store_command_outputs_counts(

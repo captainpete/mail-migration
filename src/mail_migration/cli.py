@@ -7,26 +7,15 @@ from pathlib import Path
 from typing import Callable
 
 from mail_migration import migrate as migration
-from mail_migration.readers import apple_mbox, mail_store, mail_store_scan
+from mail_migration.readers import mail_store, mail_store_scan
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="mail-migration",
-        description="Migrate Apple Mail exports into Thunderbird local folders or inspect mailbox contents.",
+        description="Migrate Apple Mail stores into Thunderbird local folders or inspect mailbox contents.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-
-    list_parser = subparsers.add_parser(
-        "list",
-        help="List mailboxes within an Apple Mail export and show message counts.",
-    )
-    list_parser.add_argument(
-        "source_mbox",
-        type=Path,
-        help="Path to the Apple Mail exported .mbox bundle to inspect.",
-    )
-    list_parser.set_defaults(handler=_handle_list_export)
 
     list_store_parser = subparsers.add_parser(
         "list-store",
@@ -39,21 +28,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     list_store_parser.set_defaults(handler=_handle_list_store)
 
-    migrate_parser = subparsers.add_parser(
-        "migrate",
+    migrate_store_parser = subparsers.add_parser(
+        "migrate-store",
         help="Migrate mailboxes from the on-disk Apple Mail store into Thunderbird.",
     )
-    migrate_parser.add_argument(
+    migrate_store_parser.add_argument(
         "mail_store_root",
         type=Path,
         help="Path to the Mail/V10 directory or a subdirectory containing Apple Mail mailboxes.",
     )
-    migrate_parser.add_argument(
+    migrate_store_parser.add_argument(
         "thunderbird_profile",
         type=Path,
         help="Path to the Thunderbird profile directory where mail is stored.",
     )
-    migrate_parser.add_argument(
+    migrate_store_parser.add_argument(
         "local_folder_path",
         type=Path,
         help=(
@@ -61,51 +50,51 @@ def build_parser() -> argparse.ArgumentParser:
             "e.g. 'Mail/Local Folders/Imports'."
         ),
     )
-    migrate_parser.add_argument(
+    migrate_store_parser.add_argument(
         "--prefix",
         help="Only migrate mailboxes whose path starts with the provided prefix (case-sensitive).",
     )
-    migrate_parser.add_argument(
+    migrate_store_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Perform validation without writing to the Thunderbird profile.",
     )
-    migrate_parser.add_argument(
+    migrate_store_parser.add_argument(
         "--no-progress",
         action="store_true",
         help="Disable progress bar output during the migration run.",
     )
-    migrate_parser.add_argument(
+    migrate_store_parser.add_argument(
         "--verbose",
         action="store_true",
         help="Increase logging verbosity for troubleshooting.",
     )
-    migrate_parser.set_defaults(handler=_handle_migrate)
+    migrate_store_parser.set_defaults(handler=_handle_migrate_store)
 
-    scan_parser = subparsers.add_parser(
-        "scan",
+    scan_store_parser = subparsers.add_parser(
+        "scan-store",
         help="Scan the Apple Mail store for partial messages that could be recovered.",
     )
-    scan_parser.add_argument(
+    scan_store_parser.add_argument(
         "mail_store_root",
         type=Path,
         help="Path to the Mail/V10 directory or subset to scan.",
     )
-    scan_parser.add_argument(
+    scan_store_parser.add_argument(
         "--report",
         type=Path,
         help="Optional path to write a JSON report describing partial recovery matches.",
     )
-    scan_parser.add_argument(
+    scan_store_parser.add_argument(
         "--prefix",
         help="Only scan mailboxes whose path starts with the provided prefix (case-sensitive).",
     )
-    scan_parser.add_argument(
+    scan_store_parser.add_argument(
         "--no-progress",
         action="store_true",
         help="Disable the progress bar output during the scan.",
     )
-    scan_parser.set_defaults(handler=_handle_scan)
+    scan_store_parser.set_defaults(handler=_handle_scan_store)
 
     return parser
 
@@ -117,17 +106,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = build_parser()
     args = parser.parse_args(argv)
 
-    if args.command == "list":
-        args.source_mbox = args.source_mbox.resolve()
-    elif args.command == "list-store":
+    if args.command == "list-store":
         args.store_root = args.store_root.resolve()
-    elif args.command == "migrate":
+    elif args.command == "migrate-store":
         args.mail_store_root = args.mail_store_root.resolve()
         args.thunderbird_profile = args.thunderbird_profile.resolve()
         args.local_folder_path = Path(args.local_folder_path)
         if args.local_folder_path.is_absolute():
             parser.error("local_folder_path must be relative to the Thunderbird profile root")
-    elif args.command == "scan":
+    elif args.command == "scan-store":
         args.mail_store_root = args.mail_store_root.resolve()
         if args.report is not None:
             args.report = args.report.resolve()
@@ -141,27 +128,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     handler: Handler = args.handler
     return handler(args)
-
-
-def _handle_list_export(args: argparse.Namespace) -> int:
-    source_mbox: Path = args.source_mbox
-    if not source_mbox.exists():
-        raise FileNotFoundError(f"Apple Mail export not found: {source_mbox}")
-
-    summaries = apple_mbox.summarize_mailboxes(source_mbox)
-    if not summaries:
-        print(f"No mailboxes found in {source_mbox}")
-        return 0
-
-    name_width = max(len(summary.display_path) for summary in summaries)
-    print(f"Mailboxes discovered in {source_mbox}:")
-    header = f"  {'Name'.ljust(name_width)}  {'Stored':>6}  {'Indexed':>7}"
-    print(header)
-    print("  " + "-" * (len(header) - 2))
-    for summary in summaries:
-        name = summary.display_path.ljust(name_width)
-        print(f"  {name}  {summary.stored_messages:6d}  {summary.indexed_messages:7d}")
-    return 0
 
 
 def _handle_list_store(args: argparse.Namespace) -> int:
@@ -198,7 +164,7 @@ def _handle_list_store(args: argparse.Namespace) -> int:
     return 0
 
 
-def _handle_migrate(args: argparse.Namespace) -> int:
+def _handle_migrate_store(args: argparse.Namespace) -> int:
     stats = migration.migrate_mail_store(
         store_root=args.mail_store_root,
         profile_root=args.thunderbird_profile,
@@ -222,7 +188,7 @@ def _handle_migrate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _handle_scan(args: argparse.Namespace) -> int:
+def _handle_scan_store(args: argparse.Namespace) -> int:
     report = mail_store_scan.scan_mail_store(
         args.mail_store_root,
         show_progress=not args.no_progress,
