@@ -1,6 +1,6 @@
 # mail-migration
 
-Utilities for migrating Apple Mail exports into Thunderbird local folders using Python 3.10+.
+Utilities for migrating Apple Mail stores into Thunderbird local folders using Python 3.10+.
 
 ## Project Layout
 - `src/mail_migration/`: main package with CLI (`cli.py`), readers, and writers.
@@ -14,26 +14,26 @@ make setup
 source .venv/bin/activate
 ```
 
-List mailboxes within an Apple Mail export and see both on-disk and indexed counts:
-```bash
-bin/mail-migration list /path/to/export.mbox
-# => Name, Stored (actual .emlx/.mbox messages), Indexed (Apple Mail table_of_contents)
-```
-
-List mailboxes directly from the live Apple Mail store (`~/Library/Mail/V10`) and check
-for partial downloads:
+Inspect the live Apple Mail store (`~/Library/Mail/V10`) and review mailbox counts:
 ```bash
 bin/mail-migration list-store ~/Library/Mail/V10
 # => Name, Messages (fully downloaded .emlx), Partial (.partial.emlx placeholders)
 ```
 
-Run the migration dry-run once you have an Apple Mail export (`.mbox` bundle) and a Thunderbird profile:
+Migrate from the on-disk Apple Mail store into a Thunderbird profile (use `--dry-run` first):
 ```bash
-bin/mail-migration migrate /path/to/export.mbox \
+bin/mail-migration migrate-store ~/Library/Mail/V10 \
   ~/Library/Thunderbird/Profiles/xyz.default \
   "Mail/Local Folders/Imports" --dry-run
 ```
-`Mail/Local Folders/Imports` is stored relative to the profile root and can be adjusted as needed.
+`Mail/Local Folders/Imports` is specified relative to the profile root and can be adjusted as needed. Omit `--dry-run` to perform the actual migration.
+
+Scan the store for partial messages and optionally emit a JSON report:
+```bash
+bin/mail-migration scan-store ~/Library/Mail/V10 --report scan.json --no-progress
+```
+
+> Export-based (`.mbox`) commands are temporarily unavailable while the pipeline is being refreshed. They will return in a future release.
 
 ## Development Commands
 ```bash
