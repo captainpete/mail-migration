@@ -1,75 +1,23 @@
 # mail-migration
 
-Utilities for migrating Apple Mail stores or exported `.mbox` bundles into Thunderbird local folders using Python 3.10+.
+This repo is a snapshot of a once-off migration I ran to rescue a very large and partially broken Apple Mail archive and move it into Thunderbird. The code exists here so future travellers (or their AI copilots) can see what worked for me without having to rediscover every corner case from scratch. It is **not** a supported or actively maintained project.
 
-## Project Layout
-- `src/mail_migration/`: main package with CLI (`cli.py`), readers, and writers.
-- `src/lib/`: shared helper utilities for future connectors.
-- `bin/mail-migration`: executable shim that invokes the CLI.
-- `tests/`: pytest suite mirroring the source layout; sample exports live in `tests/fixtures/`.
+## What it does
+- Reads both the live Apple Mail store (`~/Library/Mail/V10`) and exported `.mbox` bundles.
+- Migrates those messages into Thunderbird local folders, trying hard to preserve payloads, dates, and known Apple Mail status flags when the source data makes that possible.
+- Scans exports for gaps between the on-disk payloads and the `table_of_contents` index so you can decide whether a re-export is needed.
 
-## Getting Started
-```bash
-make setup
-source .venv/bin/activate
-```
+Along the way it recovers many “partial” `.emlx` files by stitching them back together from the live store, and it prints progress so you know which mailboxes still need attention.
 
-## Inspect Apple Mail Data
-List mailboxes from the live on-disk store (`~/Library/Mail/V10`) and review mailbox counts:
-```bash
-bin/mail-migration list-store ~/Library/Mail/V10
-# => Name, Stored (fully downloaded .emlx), Partial (.partial.emlx placeholders)
-```
+## What it does **not** do
+- **No deduplication.** Thunderbird (or another downstream tool) needs to clean up any duplicates produced by multiple migration passes.
+- **No guarantees on metadata.** Exported `.mbox` bundles lose read/reply status, so Thunderbird will treat those imports as unread. Other Apple Mail metadata may also be missing depending on the source.
+- **No polishing for re-use.** Error handling and reporting were scoped to the data I had; your mailbox tree may expose edge cases I never saw.
 
-List mailboxes from an exported Apple Mail `.mbox` bundle:
-```bash
-bin/mail-migration list-mbox ~/Desktop/MailExport
-# => Name, Stored (messages on disk), Indexed (table_of_contents entries)
-```
+## Why the code lives here
+- I wanted a record of what finally worked after weeks of trial-and-error with half-downloaded mailboxes.
+- Sharing it publicly adds another data point for anyone who needs to recover similar archives in the future.
+- AI tooling was a big help during the build, and I’m hoping it can use this repository as a shortcut next time.
 
-## Migrate Into Thunderbird
-Migrate directly from the on-disk Apple Mail store (use `--dry-run` first):
-```bash
-bin/mail-migration migrate-store ~/Library/Mail/V10 \
-  ~/Library/Thunderbird/Profiles/xyz.default \
-  "Mail/Local Folders/Imports" --dry-run
-```
-`Mail/Local Folders/Imports` is specified relative to the profile root and can be adjusted as needed. Omit `--dry-run` to perform the actual migration.
-
-Migrate from an exported `.mbox` bundle:
-```bash
-bin/mail-migration migrate-mbox ~/Desktop/MailExport \
-  ~/Library/Thunderbird/Profiles/xyz.default \
-  "Mail/Local Folders/Imports" --dry-run
-```
-Use `--prefix <path>` to limit migration to mailboxes whose display path starts with the provided value. `--mail-store-root ~/Library/Mail/V10` lets the migrator backfill messages that were indexed but left out of the export. `--no-progress` hides the progress bar and `--verbose` enables additional logging.
-
-> Note: Apple Mail export bundles do not retain per-message read/replied flags. When migrating with `migrate-mbox`, Thunderbird will mark imported messages as unread even if they were read in Apple Mail.
-
-## Scan For Issues
-Scan the live store for partial messages and optionally emit a JSON report:
-```bash
-bin/mail-migration scan-store ~/Library/Mail/V10 --report scan.json --no-progress
-```
-
-Scan an exported `.mbox` bundle for discrepancies between on-disk and indexed counts:
-```bash
-bin/mail-migration scan-mbox ~/Desktop/MailExport --report scan-export.json --no-progress
-```
-
-## Development Commands
-```bash
-make lint    # ruff + black
-make test    # pytest
-make format  # auto-fix lint findings
-```
-
-Enable the git hooks after the first setup:
-```bash
-pre-commit install
-```
-
-## Testing Strategy
-- Use `pytest` for unit and integration coverage.
-- Temporary directories (`tmp_path`) keep filesystem interactions isolated.
-- Add representative `.mbox` fixtures under `tests/fixtures/` for regression coverage.
+## Maintenance status
+This repository is archived in spirit: I don’t plan to evolve the code or provide support. Feel free to fork, adapt, or tear it apart for your own migrations, but expect to own whatever changes you need.
