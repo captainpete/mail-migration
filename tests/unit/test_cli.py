@@ -35,6 +35,27 @@ def _write_table_of_contents(mailbox_dir: Path, count: int) -> None:
     toc_path.write_bytes(struct.pack(">II", TOC_MAGIC, count) + b"\x00" * 8)
 
 
+def test_parse_args_resolves_paths_for_migrate_mbox(tmp_path: Path) -> None:
+    export_root = tmp_path / "Export"
+    export_root.mkdir()
+    profile = tmp_path / "Profile.test"
+    profile.mkdir()
+    args = cli.parse_args(
+        [
+            "migrate-mbox",
+            str(export_root),
+            str(profile),
+            "Mail/Local Folders/Imports",
+        ]
+    )
+    assert args.command == "migrate-mbox"
+    assert args.export_root == export_root
+    assert args.thunderbird_profile == profile
+    assert args.local_folder_path == Path("Mail/Local Folders/Imports")
+    assert args.prefix is None
+    assert args.mail_store_root is None
+
+
 def test_parse_args_resolves_paths_for_migrate_store(tmp_path: Path) -> None:
     source = tmp_path / "Mail" / "V10"
     source.mkdir(parents=True)
@@ -53,6 +74,26 @@ def test_parse_args_resolves_paths_for_migrate_store(tmp_path: Path) -> None:
     assert args.thunderbird_profile == profile
     assert args.local_folder_path == Path("Mail/Local Folders/Imports")
     assert args.prefix is None
+
+
+def test_parse_args_resolves_mail_store_for_migrate_mbox(tmp_path: Path) -> None:
+    export_root = tmp_path / "Export"
+    export_root.mkdir()
+    profile = tmp_path / "Profile.test"
+    profile.mkdir()
+    store_root = tmp_path / "Mail" / "V10"
+    store_root.mkdir(parents=True)
+    args = cli.parse_args(
+        [
+            "migrate-mbox",
+            str(export_root),
+            str(profile),
+            "Mail/Local Folders/Imports",
+            "--mail-store-root",
+            str(store_root),
+        ]
+    )
+    assert args.mail_store_root == store_root
 
 
 def test_parse_args_rejects_absolute_local_folder(tmp_path: Path) -> None:
@@ -114,6 +155,73 @@ def test_migrate_store_command_dry_run(tmp_path: Path, capsys: pytest.CaptureFix
     assert not target.exists()
 
 
+def test_migrate_mbox_command_dry_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    export_root = tmp_path / "Export"
+    mailbox_dir = export_root / "Inbox.mbox"
+    messages = mailbox_dir / "Messages"
+    _write_emlx(messages, "1.emlx", subject="Export Migration")
+    _write_emlx(messages, "2.partial.emlx", subject="Export Migration")
+
+    profile = tmp_path / "Profile"
+    profile.mkdir()
+
+    exit_code = cli.main(
+        [
+            "migrate-mbox",
+            str(export_root),
+            str(profile),
+            "Mail/Local Folders/Imports",
+            "--dry-run",
+        ]
+    )
+
+    captured = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Dry run complete" in captured
+    assert "messages across" in captured
+    assert "Skipped" in captured
+    target = profile / "Mail/Local Folders/Imports.sbd/Inbox"
+    assert not target.exists()
+
+
+def test_migrate_mbox_command_recovers_from_store(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    export_root = tmp_path / "Export"
+    mailbox_dir = export_root / "Inbox.mbox"
+    mailbox_dir.mkdir(parents=True)
+    _write_table_of_contents(mailbox_dir, count=1)
+
+    store_root = tmp_path / "Mail" / "V10"
+    store_mailbox = store_root / "Inbox.mbox"
+    _write_emlx(
+        store_mailbox / "Messages",
+        "1.emlx",
+        subject="Recovered Export",
+    )
+
+    profile = tmp_path / "Profile"
+    profile.mkdir()
+
+    exit_code = cli.main(
+        [
+            "migrate-mbox",
+            str(export_root),
+            str(profile),
+            "Mail/Local Folders/Imports",
+            "--mail-store-root",
+            str(store_root),
+        ]
+    )
+
+    captured = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Recovered 1 message from the mail store." in captured
+    mailbox_path = profile / "Mail/Local Folders/Imports.sbd/Inbox"
+    contents = mailbox_path.read_text()
+    assert "Recovered Export" in contents
+
+
 def test_scan_store_command_generates_report(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -142,6 +250,59 @@ def test_scan_store_command_generates_report(
     assert report_path.exists()
     data = json.loads(report_path.read_text())
     assert data["summary"]["total_partial_messages"] == 1
+
+
+def test_scan_mbox_command_generates_report(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    export_root = tmp_path / "Export"
+    mailbox_dir = export_root / "Inbox.mbox"
+    messages = mailbox_dir / "Messages"
+    _write_emlx(messages, "1.emlx", subject="Scan Export")
+    _write_emlx(messages, "2.partial.emlx", subject="Scan Export")
+    _write_table_of_contents(mailbox_dir, count=3)
+
+    report_path = tmp_path / "scan-mbox.json"
+
+    exit_code = cli.main(
+        [
+            "scan-mbox",
+            str(export_root),
+            "--report",
+            str(report_path),
+            "--no-progress",
+        ]
+    )
+
+    captured = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Scan complete" in captured
+    assert "Mailboxes with discrepancies" in captured
+    assert report_path.exists()
+    data = json.loads(report_path.read_text())
+    assert data["summary"]["total_partial_messages"] == 1
+
+
+def test_list_mbox_command_outputs_counts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    export_root = tmp_path / "Export"
+    mailbox_dir = export_root / "Inbox.mbox"
+    messages_dir = mailbox_dir / "Messages"
+    messages_dir.mkdir(parents=True)
+    for idx in range(2):
+        (messages_dir / f"{idx}.emlx").write_text("dummy")
+    _write_table_of_contents(mailbox_dir, count=5)
+
+    exit_code = cli.main(["list-mbox", str(export_root)])
+
+    captured = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Mailboxes discovered" in captured
+    assert "Stored" in captured
+    assert "Indexed" in captured
+    assert "Inbox" in captured
+    assert "2" in captured and "5" in captured
 
 
 def test_list_store_command_outputs_counts(
